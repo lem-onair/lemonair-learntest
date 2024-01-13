@@ -7,9 +7,13 @@ import java.io.InputStreamReader;
 
 import org.junit.jupiter.api.Test;
 
+import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+
+@Slf4j
 public class ProcessBuilderLearnTest {
 
 	// subscribe 함수:
@@ -72,83 +76,33 @@ public class ProcessBuilderLearnTest {
 		System.out.println(" 블로킹되고 대기시간 3초인 경우" + (System.currentTimeMillis() - startTime));
 	}
 
-	ProcessBuilder powerShellProcess(Long waitMillisecond) throws InterruptedException {
-		Thread.sleep(waitMillisecond);
-		ProcessBuilder processBuilder = new ProcessBuilder();
-		processBuilder.inheritIO();
-		processBuilder.command("powershell.exe", "echo hello-powershell");
-		return processBuilder;
-	}
-
-	// @Test
-	// void printDetectTest() {
-	// 	Mono.fromCallable(() -> print1to1000Process().start())
-	// 		.subscribeOn(Schedulers.boundedElastic())
-	// 		.subscribe(process -> {
-	// 			new Thread(() -> {
-	// 				try {
-	// 					InputStream inputStream = process.getInputStream();
-	// 					BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-	// 					String line;
-	// 					while (true) {
-	// 						line = reader.readLine();
-	// 						System.out.println(line);
-	// 					}
-	// 				} catch (IOException e) {
-	// 					e.printStackTrace();
-	// 				}
-	// 			}).start();
-	//
-	// 		});
-	// }
-
 	@Test
-	void processOnExitTest() {
-		try {
-			Mono.fromCallable(print1to1000Process()::start).flatMap(process -> {
-				process.onExit().thenAccept((c) -> {
-					System.out.println("프로세스 종료 thenAccept 실행");
-				});
+	void pubsubOnProcessBuilder() throws InterruptedException {
+		Mono.fromCallable(print1to1000Process()::start)
+			.log()
+			.subscribeOn(Schedulers.boundedElastic())
+			.publishOn(Schedulers.parallel())
+			.flatMapMany(
+				process -> Flux.fromStream(new BufferedReader(new InputStreamReader(process.getInputStream())).lines()))
+			.filter(line -> line.contains("7"))
+			.log()
+			.subscribe(log::info);
 
-				BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-				String line;
-				int sevenCount = 0;
-				while (true) {
-					try {
-						line = reader.readLine();
-						if (line.contains("7")) {
-							sevenCount++;
-							System.out.println("탐색 : " + line);
-						}
-					} catch (IOException e) {
-						System.out.println("e = " + e);
-					}
-				}
-			}).subscribeOn(Schedulers.boundedElastic());
-		} catch (InterruptedException e) {
-			throw new RuntimeException(e);
-		}
+		Thread.sleep(1000);
 	}
-
 	@Test
-	void processBlockingTest() {
-		Mono.fromCallable(() -> print1to1000Process().start()).flatMap(process -> {
-			BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-			String line;
-			int sevenCount = 0;
-			while (true) {
-				try {
-					line = reader.readLine();
-					if (line.contains("7")) {
-						sevenCount++;
-						System.out.println("탐색 : " + line);
-					}
-				} catch (IOException e) {
-					System.out.println("e = " + e);
-				}
-			}
-		}).subscribeOn(Schedulers.boundedElastic());
+	void processOnExitTest() throws InterruptedException {
+		Mono.fromCallable(print1to1000Process()::start).subscribeOn(Schedulers.boundedElastic()).subscribe(process -> {
+			process.onExit().thenAccept((c) -> log.info("프로세스 종료 thenAccept 실행"));
+			Flux.fromStream(() -> new BufferedReader(new InputStreamReader(process.getInputStream())).lines())
+				.filter(line -> line.contains("7"))
+				.subscribeOn(Schedulers.boundedElastic())
+				.subscribe(log::info);
+		});
+		Thread.sleep(2000);
 	}
+
+
 
 	ProcessBuilder print1to1000Process() throws InterruptedException {
 		Thread.sleep(1);
@@ -161,4 +115,12 @@ public class ProcessBuilderLearnTest {
 		processBuilder.command("powershell.exe", commands.toString());
 		return processBuilder;
 	}
+	ProcessBuilder powerShellProcess(Long waitMillisecond) throws InterruptedException {
+		Thread.sleep(waitMillisecond);
+		ProcessBuilder processBuilder = new ProcessBuilder();
+		processBuilder.inheritIO();
+		processBuilder.command("powershell.exe", "echo hello-powershell");
+		return processBuilder;
+	}
+
 }
